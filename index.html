@@ -192,6 +192,9 @@
   .as-Разработчики{color:var(--indigo); background-color:#EAEDF6;}
 
   .comment-cell{max-width:200px; color:var(--ink-soft); font-size:12.5px;}
+  .comment-cell .mgr{display:block; margin-top:4px; color:var(--wb-purple-deep);}
+  .comment-cell .mgr b{font-weight:600;}
+  .kbd-hint{font-size:11.5px; color:var(--ink-soft);}
   .loc-cell{max-width:150px; font-size:12.5px; color:var(--ink-soft);}
   .loc-cell .cat-badge{color:var(--ink);}
   .icon-btn{text-decoration:none; font-size:13px;}
@@ -360,7 +363,7 @@
           <th>Кто исправляет</th>
           <th>Приоритет</th>
           <th>Статус</th>
-          <th>Комментарий</th>
+          <th>Комментарии</th>
           <th>Дата</th>
           <th></th>
         </tr>
@@ -451,12 +454,18 @@
       </div>
 
       <div class="field">
-        <label>Комментарий</label>
+        <label>Комментарий переводчика</label>
         <textarea id="fldComment" placeholder="Коротко: что не так и почему"></textarea>
+      </div>
+
+      <div class="field">
+        <label>Комментарий менеджера</label>
+        <textarea id="fldManagerComment" placeholder="Решение, уточнение, кому передали"></textarea>
       </div>
 
       <div class="modal-actions">
         <button type="button" class="btn danger" id="deleteBtn" style="display:none;">Удалить</button>
+        <span class="kbd-hint" id="kbdHint">Ctrl+Enter — сохранить и завести следующий</span>
         <div style="display:flex; gap:10px; margin-left:auto; flex-wrap:wrap;">
           <button type="button" class="btn ghost" id="cancelBtn">Отмена</button>
           <button type="submit" class="btn ghost" id="saveMoreBtn" title="Язык, категория и раздел сохранятся для следующего бага">Сохранить и добавить ещё</button>
@@ -714,7 +723,7 @@ function render(){
     if(fa && b.assignee !== fa) return false;
     if(fsec && b.section !== fsec) return false;
     if(q){
-      const hay = [b.section,b.url,b.location,b.wrong,b.right,b.comment,b.category,b.subcategory,b.language,b.num].join(' ').toLowerCase();
+      const hay = [b.section,b.url,b.location,b.wrong,b.right,b.comment,b.managerComment,b.category,b.subcategory,b.language,b.num].join(' ').toLowerCase();
       if(!hay.includes(q)) return false;
     }
     return true;
@@ -758,7 +767,10 @@ function render(){
       <td>${inlineSelect('assignee', b.id, ASSIGNEES, b.assignee, true)}</td>
       <td><span class="pill pr-${slug(b.priority||'')}">${escapeHtml(b.priority||'—')}</span></td>
       <td>${inlineSelect('status', b.id, STATUSES, b.status, true)}</td>
-      <td class="comment-cell">${escapeHtml(truncate(b.comment,70))}</td>
+      <td class="comment-cell">
+        ${escapeHtml(truncate(b.comment,70))}
+        ${b.managerComment ? `<span class="mgr"><b>Менеджер:</b> ${escapeHtml(truncate(b.managerComment,70))}</span>` : ''}
+      </td>
       <td class="loc-cell mono">${formatDate(b.createdAt)}</td>
       <td>
         <div class="row-actions">
@@ -884,7 +896,7 @@ function escapeHtml(s){
 /* ---------------- Modal ---------------- */
 function takeSnapshot(){
   const p = document.querySelector('#priorityChoice input:checked');
-  return JSON.stringify(['#fldLanguage','#fldCategory','#fldSubcategory','#fldSection','#fldSectionOther','#fldUrl','#fldLocation','#fldWrong','#fldRight','#fldComment']
+  return JSON.stringify(['#fldLanguage','#fldCategory','#fldSubcategory','#fldSection','#fldSectionOther','#fldUrl','#fldLocation','#fldWrong','#fldRight','#fldComment','#fldManagerComment']
     .map(s=>$(s).value).concat([p ? p.value : '', shotChanged]));
 }
 function openNew(keep){
@@ -896,6 +908,7 @@ function openNew(keep){
   $('#modalTitle').textContent = 'Новый баг';
   $('#deleteBtn').style.display = 'none';
   $('#saveMoreBtn').style.display = 'inline-flex';
+  $('#kbdHint').textContent = 'Ctrl+Enter — сохранить и завести следующий';
   ['#textError','#urlError'].forEach(s=> $(s).classList.remove('show'));
   $('#bugForm').reset();
 
@@ -930,6 +943,7 @@ function openEdit(id){
   $('#modalTitle').textContent = 'Баг №' + b.num;
   $('#deleteBtn').style.display = 'inline-flex';
   $('#saveMoreBtn').style.display = 'none';
+  $('#kbdHint').textContent = 'Ctrl+Enter — сохранить';
   ['#textError','#urlError'].forEach(s=> $(s).classList.remove('show'));
   $('#fldLanguage').value = LANGUAGES.includes(b.language) ? b.language : LANGUAGES[0];
   $('#fldCategory').value = CATEGORIES[b.category] ? b.category : Object.keys(CATEGORIES)[0];
@@ -943,6 +957,7 @@ function openEdit(id){
   $('#fldWrong').value = b.wrong||'';
   $('#fldRight').value = b.right||'';
   $('#fldComment').value = b.comment||'';
+  $('#fldManagerComment').value = b.managerComment||'';
   const prioInput = document.querySelector(`#priorityChoice input[value="${b.priority}"]`)
                  || document.querySelector('#priorityChoice input[value="Средний"]');
   prioInput.checked = true;
@@ -965,7 +980,7 @@ function updatePriorityHint(){
 }
 
 /* ---------------- Special characters ---------------- */
-['#fldSectionOther','#fldLocation','#fldWrong','#fldRight','#fldComment'].forEach(sel=>{
+['#fldSectionOther','#fldLocation','#fldWrong','#fldRight','#fldComment','#fldManagerComment'].forEach(sel=>{
   $(sel).addEventListener('focus', ()=>{ lastTextField = $(sel); });
 });
 $('#charBar').addEventListener('mousedown', e=> e.preventDefault()); // не забираем фокус у поля
@@ -1039,7 +1054,11 @@ $('#cancelBtn').addEventListener('click', ()=>closeModal());
 $('#overlay').addEventListener('click', e=>{ if(e.target.id==='overlay') closeModal(); });
 $('#fldCategory').addEventListener('change', updateSubcategoryOptions);
 $('#fldSubcategory').addEventListener('change', updateFieldLabels);
-$('#fldLanguage').addEventListener('change', updateCharBar);
+$('#fldLanguage').addEventListener('change', ()=>{
+  updateCharBar();
+  // выбранный в новом баге язык запоминаем сразу, не дожидаясь сохранения
+  if(!editingId) writeDraft({...readDraft(), language: $('#fldLanguage').value});
+});
 $('#fldSection').addEventListener('change', updateSectionOther);
 $('#fldSectionOther').addEventListener('input', ()=> $('#sectionError').classList.remove('show'));
 $('#fldUrl').addEventListener('input', ()=> $('#urlError').classList.remove('show'));
@@ -1050,6 +1069,13 @@ $('#priorityChoice').addEventListener('change', updatePriorityHint);
   $(sel).addEventListener('change', render);
 });
 document.addEventListener('keydown', e=>{
+  // Ctrl+Enter (⌘+Enter на Mac): новый баг — сохранить и сразу завести следующий, старый — просто сохранить
+  if(e.key === 'Enter' && (e.ctrlKey || e.metaKey) && $('#overlay').classList.contains('open')){
+    e.preventDefault();
+    const btn = editingId ? $('#saveBtn') : $('#saveMoreBtn');
+    if(!btn.disabled) $('#bugForm').requestSubmit(btn);
+    return;
+  }
   if(e.key !== 'Escape') return;
   if($('#lightbox').classList.contains('open')){ $('#lightbox').classList.remove('open'); return; }
   if($('#overlay').classList.contains('open')) closeModal();
@@ -1122,6 +1148,7 @@ $('#bugForm').addEventListener('submit', async e=>{
     priority: priorityEl ? priorityEl.value : 'Средний',
     status: isNew ? STATUSES[0] : existing.status,
     comment: $('#fldComment').value.trim(),
+    managerComment: $('#fldManagerComment').value.trim(),
     screenshotUrl: finalUrl,
   };
 
@@ -1163,8 +1190,8 @@ $('#deleteBtn').addEventListener('click', async ()=>{
 
 /* ---------------- CSV export ---------------- */
 $('#exportBtn').addEventListener('click', ()=>{
-  const headers = ['№','Язык','Категория','Подкатегория','Раздел','Ссылка','Как найти ошибку','Неправильный перевод','Новый перевод','Кто исправляет','Приоритет','Статус','Комментарий','Скриншот','Дата'];
-  const rows = bugs.map(b=>[b.num,b.language,b.category,b.subcategory,b.section,b.url,b.location,b.wrong,b.right,b.assignee,b.priority,b.status,b.comment,b.screenshotUrl,formatDate(b.createdAt)]);
+  const headers = ['№','Язык','Категория','Подкатегория','Раздел','Ссылка','Как найти ошибку','Неправильный перевод','Новый перевод','Кто исправляет','Приоритет','Статус','Комментарий переводчика','Комментарий менеджера','Скриншот','Дата'];
+  const rows = bugs.map(b=>[b.num,b.language,b.category,b.subcategory,b.section,b.url,b.location,b.wrong,b.right,b.assignee,b.priority,b.status,b.comment,b.managerComment,b.screenshotUrl,formatDate(b.createdAt)]);
   const csv = [headers, ...rows].map(r =>
     r.map(v => '"' + String(v||'').replace(/"/g,'""') + '"').join(',')
   ).join('\r\n');
