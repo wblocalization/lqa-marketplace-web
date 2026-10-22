@@ -118,7 +118,9 @@
     padding:9px 16px; border-radius:8px; border:1px solid var(--wb-purple);
     background:var(--wb-purple); color:var(--paper-raised); font-weight:600; font-size:13.5px;
     white-space:nowrap; transition:opacity .15s;
+    text-decoration:none; display:inline-flex; align-items:center;
   }
+  .btn:disabled{opacity:.55; cursor:wait;}
   .btn:hover{opacity:.85;}
   .btn.ghost{background:transparent; color:var(--ink); border:1px solid var(--line);}
   .btn.ghost:hover{background:var(--paper-raised);}
@@ -128,7 +130,7 @@
 
   /* ---------- Table ---------- */
   .table-shell{
-    border:1px solid var(--line); border-radius:var(--radius); overflow:hidden;
+    border:1px solid var(--line); border-radius:var(--radius); overflow-x:auto;
     background:var(--paper-raised);
   }
   table{width:100%; border-collapse:collapse;}
@@ -260,7 +262,16 @@
   .shot-zone input{position:absolute; inset:0; opacity:0; cursor:pointer;}
   .shot-remove{margin-top:8px; font-size:11.5px; text-decoration:underline; color:var(--red);}
 
-  .modal-actions{display:flex; justify-content:space-between; align-items:center; margin-top:20px; gap:10px;}
+  .modal-actions{display:flex; justify-content:space-between; align-items:center; margin-top:20px; gap:10px; flex-wrap:wrap;}
+
+  .char-bar{display:flex; gap:4px; flex-wrap:wrap; margin-top:5px;}
+  .char-bar button{
+    min-width:28px; height:26px; padding:0 6px; border-radius:6px; border:1px solid var(--line);
+    background:var(--paper-raised); font-size:14px; color:var(--ink);
+  }
+  .char-bar button:hover{background:var(--wb-purple-soft); border-color:var(--wb-purple);}
+  .field-error{font-size:11.5px; color:var(--red); margin-top:4px; display:none;}
+  .field-error.show{display:block;}
 
   /* ---------- Toast ---------- */
   .toast{
@@ -285,11 +296,13 @@
     <div class="brand-row">
       <div class="wb-badge">WB</div>
       <div>
-      <h1>LQA-трекер магазина (веб)</h1>
+        <h1>LQA-трекер магазина (веб)</h1>
+      </div>
     </div>
     <div class="top-right">
-      <button class="btn ghost small" id="exportBtn"><a href="https://wiki.wb.ru/space/198/redakciy-wildberries-1/page/590/%F0%9F%93%9DShpargalka%20po%20kategoriyam%20LQA?edit=true" target="_blank">Шпаргалка по категориям </a></button>
-      <button class="btn ghost small" id="exportBtn"><a href="https://docs.google.com/spreadsheets/d/1owQZFtkqSkg-9TMT6od4kpx5e0bFR1EvmAp-Mjpivu0/edit?gid=783043706#gid=783043706" target="_blank">Google-таблица</a></button>
+      <a class="btn ghost small" href="https://wiki.wb.ru/space/198/redakciy-wildberries-1/page/590/%F0%9F%93%9DShpargalka%20po%20kategoriyam%20LQA" target="_blank" rel="noopener">Шпаргалка по категориям</a>
+      <a class="btn ghost small" href="https://docs.google.com/spreadsheets/d/1owQZFtkqSkg-9TMT6od4kpx5e0bFR1EvmAp-Mjpivu0/edit?gid=783043706#gid=783043706" target="_blank" rel="noopener">Google-таблица</a>
+      <button class="btn ghost small" id="exportBtn">Скачать CSV</button>
       <button class="btn" id="newBugBtn">+ Новый баг</button>
     </div>
   </header>
@@ -311,6 +324,7 @@
     <select class="filter" id="fSort">
       <option value="new">Сначала новые</option>
       <option value="old">Сначала старые</option>
+      <option value="priority">Сначала важные</option>
     </select>
   </div>
 
@@ -332,10 +346,14 @@
       </thead>
       <tbody id="tbody"></tbody>
     </table>
+    <div class="empty" id="loadingState">
+      <h3>Загружаем баги…</h3>
+      <p>Обычно это занимает пару секунд.</p>
+    </div>
     <div class="empty" id="emptyState" style="display:none;">
       <h3>Пока ничего не найдено</h3>
       <p>Заведите первый баг — он сразу попадёт в статистику и общий список.</p>
-      <button class="btn" id="emptyAddBtn">+ Новая ошибка</button>
+      <button class="btn" id="emptyAddBtn">+ Новый баг</button>
     </div>
   </div>
 </div>
@@ -344,7 +362,7 @@
 <div class="overlay" id="overlay">
   <div class="modal">
     <div class="modal-head">
-      <h2 id="modalTitle">Новая ошибка</h2>
+      <h2 id="modalTitle">Новый баг</h2>
       <button class="close-x" id="closeModal">✕</button>
     </div>
     <form id="bugForm">
@@ -378,6 +396,8 @@
           <textarea id="fldRight"></textarea>
         </div>
       </div>
+      <div class="field-error" id="textError">Заполните хотя бы одно из полей: что было или что должно быть.</div>
+      <div class="char-bar" id="charBar" title="Вставить букву в поле, где стоит курсор. С Shift — заглавную."></div>
 
       <div class="field">
         <label>Скриншот</label>
@@ -402,8 +422,9 @@
 
       <div class="modal-actions">
         <button type="button" class="btn danger" id="deleteBtn" style="display:none;">Удалить</button>
-        <div style="display:flex; gap:10px; margin-left:auto;">
+        <div style="display:flex; gap:10px; margin-left:auto; flex-wrap:wrap;">
           <button type="button" class="btn ghost" id="cancelBtn">Отмена</button>
+          <button type="submit" class="btn ghost" id="saveMoreBtn" title="Язык, категория и раздел сохранятся для следующего бага">Сохранить и добавить ещё</button>
           <button type="submit" class="btn" id="saveBtn">Сохранить</button>
         </div>
       </div>
@@ -441,13 +462,23 @@ const PRIORITY_HINTS = {
 const STATUSES = ["Ожидает рассмотрения","На рассмотрении","Не ищется в веблейте","Исправлено"];
 const ASSIGNEES = ["Лингвисты","Тестировщики","Разработчики"];
 const LINK_SUBCATEGORY = "Ссылка ведёт не туда";
+// Буквы, которых нет в русской раскладке — кнопки под полями «было / стало»
+const SPECIAL_CHARS = {
+  "Таджикский": ["ғ","ӣ","қ","ӯ","ҳ","ҷ"],
+  "Казахский": ["ә","ғ","қ","ң","ө","ұ","ү","һ","і"],
+  "Киргизский": ["ң","ө","ү"],
+  "Азербайджанский": ["ə","ğ","ı","ö","ü","ş","ç"],
+  "Узбекский": ["oʻ","gʻ","ʼ"]
+};
+const LAST_DRAFT_KEY = 'lqa:lastDraft'; // язык / категория / раздел последнего бага
 
 /* ---------------- State ---------------- */
 let bugs = [];
+let loaded = false;
 
 /* ---------------- Backend endpoint ---------------- */
-// Вставьте сюда ссылку на развёрнутый Google Apps Script (заканчивается на /exec).
-// См. инструкцию в файле apps-script-code.gs
+// Ссылка на развёрнутый Google Apps Script (заканчивается на /exec).
+// Код бэкенда — в файле apps-script-code.gs рядом с этим файлом.
 const SHEETS_ENDPOINT = 'https://script.google.com/macros/s/AKfycbxMOStrnj-i3zik1-kqKORmAJ4da8B9Ek3OArLS1cVJzXfXRnkmtlMXinvP35UpHm_FLA/exec';
 const endpointConfigured = /^https:\/\//.test(SHEETS_ENDPOINT);
 
@@ -459,72 +490,92 @@ function showSetupBanner(){
 }
 
 let editingId = null;
+let editingBaseUpdatedAt;        // updatedAt бага на момент открытия формы — для проверки конфликтов
 let pendingShot = null;          // новая локальная dataURL, если пользователь только что прикрепил файл
 let existingScreenshotUrl = '';  // ссылка на уже сохранённый скриншот (при редактировании)
 let shotChanged = false;         // скриншот добавили, заменили или убрали в текущей сессии формы
+let formSnapshot = '';           // состояние формы при открытии — чтобы не потерять несохранённое
+let lastTextField = null;        // куда вставлять спецсимволы
 
 const $ = (sel) => document.querySelector(sel);
 const tbody = $('#tbody');
 
+function readDraft(){
+  try{ return JSON.parse(localStorage.getItem(LAST_DRAFT_KEY)) || {}; }catch(e){ return {}; }
+}
+function writeDraft(d){
+  try{ localStorage.setItem(LAST_DRAFT_KEY, JSON.stringify(d)); }catch(e){}
+}
+
 /* ---------------- Storage (Google Sheets via Apps Script) ---------------- */
-async function loadBugs(){
-  if(!endpointConfigured){ bugs = []; render(); return; }
+async function callApi(payload){
+  const res = await fetch(SHEETS_ENDPOINT, {
+    method: 'POST',
+    headers: {'Content-Type': 'text/plain;charset=utf-8'}, // text/plain избегает CORS preflight на Apps Script
+    body: JSON.stringify(payload)
+  });
+  return res.json();
+}
+function errText(e){ return e && e.message ? e.message : ''; }
+
+async function loadBugs(silent){
+  if(!endpointConfigured){ bugs = []; loaded = true; render(); return; }
   try{
     const res = await fetch(SHEETS_ENDPOINT);
     const json = await res.json();
     if(!json.ok) throw new Error(json.error || 'load failed');
     bugs = (json.bugs||[]).map(b => ({...b, num: Number(b.num)||0}));
   }catch(e){
-    showToast('Не удалось загрузить данные: ' + (e && e.message ? e.message : ''));
+    if(silent) return; // фоновое обновление не удалось — оставляем то, что уже на экране
+    showToast('Не удалось загрузить данные: ' + errText(e));
     bugs = [];
   }
+  loaded = true;
   render();
 }
-async function upsertBugRemote(bug){
+// Возвращает {ok, bug} | {conflict, bug} | null (ошибка, тост уже показан)
+async function upsertBugRemote(bug, baseUpdatedAt){
   try{
-    const res = await fetch(SHEETS_ENDPOINT, {
-      method: 'POST',
-      headers: {'Content-Type': 'text/plain;charset=utf-8'}, // text/plain избегает CORS preflight на Apps Script
-      body: JSON.stringify({action:'upsert', bug})
-    });
-    const json = await res.json();
+    const json = await callApi({action:'upsert', bug, baseUpdatedAt});
+    if(json.conflict) return json;
     if(!json.ok) throw new Error(json.error || 'save failed');
-    return true;
+    return json;
   }catch(e){
-    showToast('Ошибка сохранения: ' + (e && e.message ? e.message : ''));
-    return false;
+    showToast('Ошибка сохранения: ' + errText(e));
+    return null;
+  }
+}
+async function patchBugRemote(id, fields){
+  try{
+    const json = await callApi({action:'patch', id, fields});
+    if(!json.ok) throw new Error(json.error || 'save failed');
+    return json.bug;
+  }catch(e){
+    showToast('Ошибка сохранения: ' + errText(e));
+    return null;
   }
 }
 async function deleteBugRemote(id){
   try{
-    const res = await fetch(SHEETS_ENDPOINT, {
-      method: 'POST',
-      headers: {'Content-Type': 'text/plain;charset=utf-8'},
-      body: JSON.stringify({action:'delete', id})
-    });
-    const json = await res.json();
+    const json = await callApi({action:'delete', id});
     if(!json.ok) throw new Error(json.error || 'delete failed');
     return true;
   }catch(e){
-    showToast('Ошибка удаления: ' + (e && e.message ? e.message : ''));
+    showToast('Ошибка удаления: ' + errText(e));
     return false;
   }
 }
 async function uploadScreenshot(id, dataUrl){
   try{
-    const res = await fetch(SHEETS_ENDPOINT, {
-      method: 'POST',
-      headers: {'Content-Type': 'text/plain;charset=utf-8'},
-      body: JSON.stringify({action:'screenshot', id, dataUrl})
-    });
-    const json = await res.json();
+    const json = await callApi({action:'screenshot', id, dataUrl});
     if(!json.ok) throw new Error(json.error || 'upload failed');
     return json.url;
   }catch(e){
-    showToast('Скриншот не загрузился: ' + (e && e.message ? e.message : ''));
+    showToast('Скриншот не загрузился: ' + errText(e));
     return null;
   }
 }
+function normalizeBug(b){ return {...b, num: Number(b.num)||0}; }
 
 /* ---------------- Init selects ---------------- */
 function fillSelect(el, items, withEmpty){
@@ -533,7 +584,6 @@ function fillSelect(el, items, withEmpty){
 }
 function initStaticSelects(){
   $('#fLanguage').innerHTML = '<option value="">Любой язык</option>' + LANGUAGES.map(l=>`<option value="${l}">${l}</option>`).join('');
-  fillSelect($('#fCategory'), Object.keys(CATEGORIES), true);
   $('#fCategory').innerHTML = '<option value="">Все категории</option>' + Object.keys(CATEGORIES).map(c=>`<option value="${c}">${c}</option>`).join('');
   $('#fPriority').innerHTML = '<option value="">Любой приоритет</option>' + PRIORITIES.map(p=>`<option value="${p}">${p}</option>`).join('');
   $('#fStatus').innerHTML = '<option value="">Любой статус</option>' + STATUSES.map(s=>`<option value="${s}">${s}</option>`).join('');
@@ -545,6 +595,10 @@ function initStaticSelects(){
   $('#priorityChoice').innerHTML = PRIORITIES.map(p =>
     `<label class="p-${p}"><input type="radio" name="priority" value="${p}"><span>${p}</span></label>`
   ).join('');
+
+  // Кто работает с одним языком — сразу видит только свои баги
+  const draft = readDraft();
+  if(draft.language && LANGUAGES.includes(draft.language)) $('#fLanguage').value = draft.language;
 }
 function updateSubcategoryOptions(){
   const cat = $('#fldCategory').value;
@@ -559,6 +613,10 @@ function updateFieldLabels(){
   $('#fldWrong').placeholder = isLink ? 'https://…' : '';
   $('#fldRight').placeholder = isLink ? 'Например: должна открываться узбекская версия' : '';
 }
+function updateCharBar(){
+  const chars = SPECIAL_CHARS[$('#fldLanguage').value] || [];
+  $('#charBar').innerHTML = chars.map(c => `<button type="button" data-ch="${c}">${c}</button>`).join('');
+}
 
 /* ---------------- Render ---------------- */
 function slug(s){ return s.replace(/\s+/g,'_'); }
@@ -567,6 +625,7 @@ function render(){
   renderStats();
   const q = $('#searchInput').value.trim().toLowerCase();
   const fl = $('#fLanguage').value, fc = $('#fCategory').value, fp = $('#fPriority').value, fs = $('#fStatus').value, fa = $('#fAssignee').value;
+  const sort = $('#fSort').value;
 
   const filtered = bugs.filter(b=>{
     if(fl && b.language !== fl) return false;
@@ -575,17 +634,26 @@ function render(){
     if(fs && b.status !== fs) return false;
     if(fa && b.assignee !== fa) return false;
     if(q){
-      const hay = [b.location,b.wrong,b.right,b.comment,b.category,b.subcategory,b.language].join(' ').toLowerCase();
+      const hay = [b.location,b.wrong,b.right,b.comment,b.category,b.subcategory,b.language,b.num].join(' ').toLowerCase();
       if(!hay.includes(q)) return false;
     }
     return true;
   }).sort((a,b)=> {
     const ca = a.createdAt||'', cb = b.createdAt||'';
-    return $('#fSort').value === 'old' ? ca.localeCompare(cb) : cb.localeCompare(ca);
+    if(sort === 'old') return ca.localeCompare(cb);
+    if(sort === 'priority'){
+      // открытые выше исправленных, внутри — по приоритету, потом новые сверху
+      const fa = a.status==='Исправлено', fb = b.status==='Исправлено';
+      if(fa !== fb) return fa ? 1 : -1;
+      const pa = PRIORITIES.indexOf(a.priority), pb = PRIORITIES.indexOf(b.priority);
+      if(pa !== pb) return (pa<0?99:pa) - (pb<0?99:pb);
+    }
+    return cb.localeCompare(ca);
   });
 
   tbody.innerHTML = '';
-  $('#emptyState').style.display = filtered.length ? 'none' : 'block';
+  $('#loadingState').style.display = loaded ? 'none' : 'block';
+  $('#emptyState').style.display = loaded && !filtered.length ? 'block' : 'none';
   $('#bugTable').style.display = filtered.length ? 'table' : 'none';
 
   filtered.forEach(b=>{
@@ -605,7 +673,7 @@ function render(){
         </div>
       </td>
       <td>${inlineSelect('assignee', b.id, ASSIGNEES, b.assignee, true)}</td>
-      <td><span class="pill pr-${slug(b.priority)}">${b.priority}</span></td>
+      <td><span class="pill pr-${slug(b.priority||'')}">${escapeHtml(b.priority||'—')}</span></td>
       <td>${inlineSelect('status', b.id, STATUSES, b.status, true)}</td>
       <td class="comment-cell">${escapeHtml(truncate(b.comment,70))}</td>
       <td class="loc-cell mono">${formatDate(b.createdAt)}</td>
@@ -628,12 +696,13 @@ function render(){
         ev.stopPropagation();
         const field = sel.dataset.field;
         const prev = b[field];
-        b[field] = sel.value;
-        b.updatedAt = new Date().toISOString();
         sel.disabled = true;
-        const ok = await upsertBugRemote(b);
+        // отправляем только изменённое поле — правки коллег в других полях не затираются
+        const saved = await patchBugRemote(b.id, {[field]: sel.value});
         sel.disabled = false;
-        if(!ok){ b[field] = prev; sel.value = prev; return; }
+        if(!saved){ sel.value = prev || ''; return; }
+        Object.assign(b, normalizeBug(saved));
+        sel.className = selectClass(field, b[field]);
         showToast('Сохранено');
         renderStats();
       });
@@ -645,14 +714,17 @@ function render(){
     tbody.appendChild(tr);
   });
 }
+function selectClass(field, selected){
+  const prefix = field==='status' ? 'st' : 'as';
+  const slugVal = selected ? slug(selected) : 'unassigned';
+  return `inline-select ${prefix}-pill ${prefix}-${slugVal}`;
+}
 function inlineSelect(field, id, options, selected, colorClass){
   let opts = options.map(o=>`<option value="${o}" ${o===selected?'selected':''}>${o}</option>`).join('');
   if(field==='assignee'){
     opts = `<option value="" ${selected?'':'selected'}>Не назначено</option>` + opts;
   }
-  const prefix = field==='status' ? 'st' : 'as';
-  const slugVal = selected ? slug(selected) : 'unassigned';
-  const cls = colorClass ? `inline-select ${prefix}-pill ${prefix}-${slugVal}` : 'inline-select';
+  const cls = colorClass ? selectClass(field, selected) : 'inline-select';
   return `<select class="${cls}" data-field="${field}" data-id="${id}">${opts}</select>`;
 }
 
@@ -673,10 +745,6 @@ function renderStats(){
 
   const weekAgo = Date.now() - 7*24*60*60*1000;
   const newThisWeek = bugs.filter(b=> b.createdAt && new Date(b.createdAt).getTime() >= weekAgo).length;
-
-  const open = bugs.filter(b=>b.status!=='Исправлено' && b.createdAt);
-  const oldestOpen = open.sort((a,b)=> new Date(a.createdAt) - new Date(b.createdAt))[0];
-  const oldestDays = oldestOpen ? Math.floor((Date.now() - new Date(oldestOpen.createdAt).getTime()) / (24*60*60*1000)) : null;
 
   $('#stats').innerHTML = `
     <div class="stat"><div class="num mono">${total}</div><div class="label">Всего багов</div></div>
@@ -703,14 +771,13 @@ function renderLangBreakdown(){
 function renderPriorityBreakdown(){
   const counts = {};
   bugs.forEach(b=> counts[b.priority||'—'] = (counts[b.priority||'—']||0)+1);
-  const order = ['Блокер','Высокий','Средний','Низкий'];
-  const entries = order.filter(p=>counts[p]).map(p=>[p,counts[p]]);
+  const entries = PRIORITIES.filter(p=>counts[p]).map(p=>[p,counts[p]]);
   $('#prioBreakdown').innerHTML = entries
     .map(([p,c])=> `<span class="lang-chip pr-${slug(p)}-chip">${escapeHtml(p)} <b>${c}</b></span>`)
     .join('');
 }
 
-function truncate(s,n){ if(!s) return '—'; return s.length>n ? s.slice(0,n)+'…' : s; }
+function truncate(s,n){ if(!s) return '—'; s = String(s); return s.length>n ? s.slice(0,n)+'…' : s; }
 function formatDate(iso){
   if(!iso) return '—';
   const d = new Date(iso);
@@ -723,55 +790,98 @@ function escapeHtml(s){
 }
 
 /* ---------------- Modal ---------------- */
-function openNew(){
+function takeSnapshot(){
+  const p = document.querySelector('#priorityChoice input:checked');
+  return JSON.stringify(['#fldLanguage','#fldCategory','#fldSubcategory','#fldLocation','#fldWrong','#fldRight','#fldComment']
+    .map(s=>$(s).value).concat([p ? p.value : '', shotChanged]));
+}
+function openNew(keep){
   editingId = null;
+  editingBaseUpdatedAt = undefined;
   pendingShot = null;
   existingScreenshotUrl = '';
   shotChanged = false;
-  $('#modalTitle').textContent = 'Новая ошибка';
+  $('#modalTitle').textContent = 'Новый баг';
   $('#deleteBtn').style.display = 'none';
+  $('#saveMoreBtn').style.display = 'inline-flex';
+  $('#textError').classList.remove('show');
   $('#bugForm').reset();
-  $('#fldLanguage').selectedIndex = 0;
-  $('#fldCategory').selectedIndex = 0;
+
+  // язык, категория и раздел — как в прошлом баге: обычно проходят один язык и один раздел подряд
+  const draft = keep || readDraft();
+  $('#fldLanguage').value = LANGUAGES.includes(draft.language) ? draft.language : LANGUAGES[0];
+  $('#fldCategory').value = CATEGORIES[draft.category] ? draft.category : Object.keys(CATEGORIES)[0];
   updateSubcategoryOptions();
+  if(keep){
+    if((CATEGORIES[draft.category]||[]).includes(draft.subcategory)) $('#fldSubcategory').value = draft.subcategory;
+    $('#fldLocation').value = draft.location || '';
+    updateFieldLabels();
+  }
+  updateCharBar();
   resetShotUI();
-  $('#shotPlaceholder').textContent = 'Нажмите, чтобы выбрать файл, или вставьте скриншот из буфера (Ctrl+V)';
-  document.querySelectorAll('#priorityChoice input')[2].checked = true; // default: Средний
+  document.querySelector('#priorityChoice input[value="Средний"]').checked = true;
   updatePriorityHint();
+  formSnapshot = takeSnapshot();
   $('#overlay').classList.add('open');
+  (keep ? $('#fldWrong') : $('#fldLanguage')).focus();
 }
 function openEdit(id){
   const b = bugs.find(x=>x.id===id);
   if(!b) return;
   editingId = id;
+  editingBaseUpdatedAt = b.updatedAt || '';
   pendingShot = null;
   existingScreenshotUrl = b.screenshotUrl || '';
   shotChanged = false;
-  $('#modalTitle').textContent = 'Ошибка №' + b.num;
+  $('#modalTitle').textContent = 'Баг №' + b.num;
   $('#deleteBtn').style.display = 'inline-flex';
-  $('#fldLanguage').value = b.language||LANGUAGES[0];
-  $('#fldCategory').value = b.category;
+  $('#saveMoreBtn').style.display = 'none';
+  $('#textError').classList.remove('show');
+  $('#fldLanguage').value = LANGUAGES.includes(b.language) ? b.language : LANGUAGES[0];
+  $('#fldCategory').value = CATEGORIES[b.category] ? b.category : Object.keys(CATEGORIES)[0];
   updateSubcategoryOptions();
-  $('#fldSubcategory').value = b.subcategory;
+  if((CATEGORIES[b.category]||[]).includes(b.subcategory)) $('#fldSubcategory').value = b.subcategory;
   updateFieldLabels();
+  updateCharBar();
   $('#fldLocation').value = b.location||'';
   $('#fldWrong').value = b.wrong||'';
   $('#fldRight').value = b.right||'';
   $('#fldComment').value = b.comment||'';
-  document.querySelector(`#priorityChoice input[value="${b.priority}"]`).checked = true;
+  const prioInput = document.querySelector(`#priorityChoice input[value="${b.priority}"]`)
+                 || document.querySelector('#priorityChoice input[value="Средний"]');
+  prioInput.checked = true;
   updatePriorityHint();
   resetShotUI();
   if(existingScreenshotUrl){
     showShotPreview(existingScreenshotUrl); // прямая ссылка на Google Диск, отдельная загрузка не нужна
   }
+  formSnapshot = takeSnapshot();
   $('#overlay').classList.add('open');
 }
-function closeModal(){ $('#overlay').classList.remove('open'); }
+function closeModal(force){
+  if(!force && takeSnapshot() !== formSnapshot && !confirm('Закрыть без сохранения? Введённое пропадёт.')) return;
+  $('#overlay').classList.remove('open');
+}
 
 function updatePriorityHint(){
   const checked = document.querySelector('#priorityChoice input:checked');
   $('#priorityHint').textContent = checked ? PRIORITY_HINTS[checked.value] : '';
 }
+
+/* ---------------- Special characters ---------------- */
+['#fldLocation','#fldWrong','#fldRight','#fldComment'].forEach(sel=>{
+  $(sel).addEventListener('focus', ()=>{ lastTextField = $(sel); });
+});
+$('#charBar').addEventListener('mousedown', e=> e.preventDefault()); // не забираем фокус у поля
+$('#charBar').addEventListener('click', e=>{
+  const btn = e.target.closest('button[data-ch]');
+  if(!btn) return;
+  const field = lastTextField || $('#fldWrong');
+  let ch = btn.dataset.ch;
+  if(e.shiftKey) ch = ch.charAt(0).toUpperCase() + ch.slice(1);
+  field.focus();
+  field.setRangeText(ch, field.selectionStart, field.selectionEnd, 'end');
+});
 
 /* ---------------- Screenshot handling ---------------- */
 function resetShotUI(){
@@ -804,53 +914,68 @@ function compressImage(file, cb){
   };
   reader.readAsDataURL(file);
 }
+function attachShot(file){
+  compressImage(file, dataUrl=>{ pendingShot = dataUrl; shotChanged = true; showShotPreview(dataUrl); });
+}
 $('#shotInput').addEventListener('change', e=>{
   const file = e.target.files[0];
-  if(!file) return;
-  compressImage(file, dataUrl=>{ pendingShot = dataUrl; shotChanged = true; showShotPreview(dataUrl); });
+  if(file) attachShot(file);
 });
-$('#shotZone').addEventListener('paste', e=>{
-  const items = e.clipboardData?.items || [];
-  for(const it of items){
-    if(it.type.startsWith('image/')){
-      const file = it.getAsFile();
-      compressImage(file, dataUrl=>{ pendingShot = dataUrl; shotChanged = true; showShotPreview(dataUrl); });
-    }
-  }
-});
+// один обработчик на весь документ: вставка работает, где бы ни стоял курсор в открытой форме
 document.addEventListener('paste', e=>{
   if(!$('#overlay').classList.contains('open')) return;
   const items = e.clipboardData?.items || [];
   for(const it of items){
     if(it.type.startsWith('image/')){
-      const file = it.getAsFile();
-      compressImage(file, dataUrl=>{ pendingShot = dataUrl; shotChanged = true; showShotPreview(dataUrl); });
+      e.preventDefault();
+      attachShot(it.getAsFile());
+      break;
     }
   }
 });
 $('#shotRemove').addEventListener('click', ()=>{ pendingShot=null; shotChanged=true; resetShotUI(); });
 
 /* ---------------- Events ---------------- */
-$('#newBugBtn').addEventListener('click', openNew);
-$('#emptyAddBtn').addEventListener('click', openNew);
-$('#closeModal').addEventListener('click', closeModal);
-$('#cancelBtn').addEventListener('click', closeModal);
+$('#newBugBtn').addEventListener('click', ()=>openNew());
+$('#emptyAddBtn').addEventListener('click', ()=>openNew());
+$('#closeModal').addEventListener('click', ()=>closeModal());
+$('#cancelBtn').addEventListener('click', ()=>closeModal());
 $('#overlay').addEventListener('click', e=>{ if(e.target.id==='overlay') closeModal(); });
 $('#fldCategory').addEventListener('change', updateSubcategoryOptions);
 $('#fldSubcategory').addEventListener('change', updateFieldLabels);
+$('#fldLanguage').addEventListener('change', updateCharBar);
 $('#priorityChoice').addEventListener('change', updatePriorityHint);
+['#fldWrong','#fldRight'].forEach(sel=> $(sel).addEventListener('input', ()=> $('#textError').classList.remove('show')));
 ['#searchInput','#fLanguage','#fCategory','#fPriority','#fStatus','#fAssignee','#fSort'].forEach(sel=>{
   $(sel).addEventListener('input', render);
   $(sel).addEventListener('change', render);
+});
+document.addEventListener('keydown', e=>{
+  if(e.key !== 'Escape') return;
+  if($('#lightbox').classList.contains('open')){ $('#lightbox').classList.remove('open'); return; }
+  if($('#overlay').classList.contains('open')) closeModal();
+});
+// вернулись на вкладку — подтягиваем свежие данные, чтобы не работать со старой копией
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible' && loaded && !$('#overlay').classList.contains('open')) loadBugs(true);
 });
 
 $('#bugForm').addEventListener('submit', async e=>{
   e.preventDefault();
   if(!endpointConfigured){ showToast('Хранилище не настроено — вставьте ссылку в SHEETS_ENDPOINT'); return; }
+  if(!$('#fldWrong').value.trim() && !$('#fldRight').value.trim()){
+    $('#textError').classList.add('show');
+    $('#fldWrong').focus();
+    return;
+  }
 
+  const addMore = e.submitter && e.submitter.id === 'saveMoreBtn';
   const priorityEl = document.querySelector('#priorityChoice input:checked');
-  const saveBtn = $('#saveBtn');
-  saveBtn.disabled = true; saveBtn.textContent = 'Сохранение…';
+  const saveBtn = $('#saveBtn'), saveMoreBtn = $('#saveMoreBtn');
+  const busyBtn = addMore ? saveMoreBtn : saveBtn;
+  const busyLabel = busyBtn.textContent;
+  saveBtn.disabled = saveMoreBtn.disabled = true; busyBtn.textContent = 'Сохранение…';
+  const done = ()=>{ saveBtn.disabled = saveMoreBtn.disabled = false; busyBtn.textContent = busyLabel; };
 
   const id = editingId || ('b'+Date.now()+Math.random().toString(36).slice(2,7));
   const isNew = !editingId;
@@ -860,39 +985,56 @@ $('#bugForm').addEventListener('submit', async e=>{
   if(shotChanged){
     if(pendingShot){
       const uploaded = await uploadScreenshot(id, pendingShot);
-      if(uploaded) finalUrl = uploaded; // если загрузка не удалась — оставляем прежнюю ссылку, тост уже показан
+      if(uploaded){
+        // повторное «Сохранить» после ошибки не должно грузить скриншот второй раз
+        finalUrl = existingScreenshotUrl = uploaded;
+        pendingShot = null; shotChanged = false;
+      } // если загрузка не удалась — оставляем прежнюю ссылку, тост уже показан
     }else{
       finalUrl = '';
     }
   }
 
-  const now = new Date().toISOString();
+  // номер, createdAt и updatedAt выставляет сервер
   const bug = {
     id,
-    num: isNew ? (bugs.reduce((m,b)=>Math.max(m,b.num||0),0)+1) : existing.num,
+    num: isNew ? '' : existing.num,
     language: $('#fldLanguage').value,
     category: $('#fldCategory').value,
     subcategory: $('#fldSubcategory').value,
     location: $('#fldLocation').value.trim(),
     wrong: $('#fldWrong').value.trim(),
     right: $('#fldRight').value.trim(),
-    assignee: isNew ? '' : existing.assignee,
+    assignee: isNew ? '' : (existing.assignee || ''),
     priority: priorityEl ? priorityEl.value : 'Средний',
     status: isNew ? STATUSES[0] : existing.status,
     comment: $('#fldComment').value.trim(),
     screenshotUrl: finalUrl,
-    createdAt: isNew ? now : existing.createdAt,
-    updatedAt: now,
   };
 
-  const ok = await upsertBugRemote(bug);
-  saveBtn.disabled = false; saveBtn.textContent = 'Сохранить';
-  if(!ok) return; // модалка остаётся открытой — ничего не потеряно
+  const res = await upsertBugRemote(bug, isNew ? undefined : editingBaseUpdatedAt);
+  done();
+  if(!res) return; // модалка остаётся открытой — ничего не потеряно
 
-  if(isNew){ bugs.push(bug); } else { bugs[bugs.findIndex(b=>b.id===id)] = bug; }
-  showToast(isNew ? 'Ошибка добавлена' : 'Изменения сохранены');
-  closeModal();
+  if(res.conflict){
+    // коллега успел сохранить этот баг — обновляем у себя, введённое в форме не трогаем
+    const fresh = normalizeBug(res.bug);
+    bugs[bugs.findIndex(b=>b.id===id)] = fresh;
+    editingBaseUpdatedAt = fresh.updatedAt;
+    render();
+    alert('Пока вы редактировали, этот баг изменил кто-то ещё.\n\n' +
+          'Ваши правки остались в форме. Нажмите «Сохранить» ещё раз, чтобы записать их поверх, или «Отмена», чтобы посмотреть новую версию.');
+    return;
+  }
+
+  const saved = normalizeBug(res.bug || bug); // старый бэкенд не возвращает bug
+  if(isNew){ bugs.push(saved); } else { bugs[bugs.findIndex(b=>b.id===id)] = saved; }
+  const draft = {language: saved.language, category: saved.category, subcategory: saved.subcategory, location: saved.location};
+  writeDraft(draft);
+  showToast(isNew ? `Баг №${saved.num} добавлен` : 'Изменения сохранены');
   render();
+  if(addMore) openNew(draft);
+  else closeModal(true);
 });
 
 $('#deleteBtn').addEventListener('click', async ()=>{
@@ -901,18 +1043,18 @@ $('#deleteBtn').addEventListener('click', async ()=>{
   const ok = await deleteBugRemote(editingId);
   if(!ok) return;
   bugs = bugs.filter(b=>b.id!==editingId);
-  closeModal();
+  closeModal(true);
   render();
 });
 
 /* ---------------- CSV export ---------------- */
 $('#exportBtn').addEventListener('click', ()=>{
-  const headers = ['Язык','Категория','Подкатегория','Раздел / как найти ошибку','Неправильный перевод','Новый перевод','Кто исправляет','Приоритет','Статус','Комментарий','Дата'];
-  const rows = bugs.map(b=>[b.language,b.category,b.subcategory,b.location,b.wrong,b.right,b.assignee,b.priority,b.status,b.comment,formatDate(b.createdAt)]);
+  const headers = ['№','Язык','Категория','Подкатегория','Раздел / как найти ошибку','Неправильный перевод','Новый перевод','Кто исправляет','Приоритет','Статус','Комментарий','Скриншот','Дата'];
+  const rows = bugs.map(b=>[b.num,b.language,b.category,b.subcategory,b.location,b.wrong,b.right,b.assignee,b.priority,b.status,b.comment,b.screenshotUrl,formatDate(b.createdAt)]);
   const csv = [headers, ...rows].map(r =>
     r.map(v => '"' + String(v||'').replace(/"/g,'""') + '"').join(',')
   ).join('\r\n');
-  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const blob = new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8;'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = 'lqa-errors.csv';
@@ -939,6 +1081,7 @@ $('#lightbox').addEventListener('click', ()=> $('#lightbox').classList.remove('o
 /* ---------------- Boot ---------------- */
 initStaticSelects();
 if(!endpointConfigured) showSetupBanner();
+render();
 loadBugs();
 </script>
 </body>
