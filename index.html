@@ -304,6 +304,34 @@
   .access-note.alert .btn{display:inline-flex;}
 
   .footer-note{margin-top:28px; font-size:12px; color:var(--ink-soft); text-align:center;}
+
+  /* ---------- Выбор нескольких правок ---------- */
+  th.c-check, td.c-check{width:34px; padding-right:0;}
+  .c-check input{width:18px; height:18px; accent-color:var(--wb-purple); cursor:pointer; margin:0;}
+  tbody tr.selected{background:var(--wb-purple-soft);}
+  .bulk-bar{
+    display:none; position:fixed; left:50%; transform:translateX(-50%); bottom:20px; z-index:45;
+    align-items:center; gap:8px; flex-wrap:wrap; justify-content:center;
+    max-width:calc(100% - 24px); padding:10px 12px; border-radius:12px;
+    background:var(--ink); color:var(--paper-raised); box-shadow:0 12px 32px rgba(31,39,51,.3); font-size:13px;
+  }
+  .bulk-bar.show{display:flex;}
+  .bulk-bar b{font-weight:600; margin-right:4px; white-space:nowrap;}
+  .bulk-bar select, .bulk-bar button{
+    border:1px solid rgba(255,255,255,.25); background:transparent; color:inherit;
+    border-radius:8px; padding:7px 10px; font-size:13px; font-family:inherit;
+  }
+  .bulk-bar select option{color:var(--ink);}
+  .bulk-bar button:hover, .bulk-bar select:hover{background:rgba(255,255,255,.1);}
+  .bulk-bar .bulk-danger{border-color:#E8A79E; color:#F6C9C2;}
+  .bulk-bar .bulk-link{border:none; text-decoration:underline; padding:7px 4px;}
+  .bulk-bar.busy{opacity:.6; pointer-events:none;}
+  body.bulk-on .wrap{padding-bottom:150px;}
+  body.bulk-on .toast{bottom:var(--bulk-bar-space, 22px);} /* не перекрывать панель выбора */
+  @media (max-width:700px){
+    .bulk-bar{left:8px; right:8px; transform:none; max-width:none; bottom:calc(10px + env(safe-area-inset-bottom));}
+    .bulk-bar select, .bulk-bar button{padding:9px 10px; font-size:14px;}
+  }
 </style>
 </head>
 <body>
@@ -356,6 +384,7 @@
     <table id="bugTable">
       <thead>
         <tr>
+          <th class="c-check"><input type="checkbox" id="selectAll" title="Выбрать все показанные"></th>
           <th>Язык</th>
           <th>Категория</th>
           <th>Раздел</th>
@@ -477,6 +506,16 @@
   </div>
 </div>
 
+<div class="bulk-bar" id="bulkBar">
+  <b id="bulkCount">Выбрано: 0</b>
+  <select id="bulkStatus" title="Поменять статус у выбранных"><option value="">Статус…</option></select>
+  <select id="bulkAssignee" title="Назначить, кто исправляет"><option value="">Кто исправляет…</option></select>
+  <button type="button" id="bulkCsv">Скачать CSV</button>
+  <button type="button" class="bulk-danger" id="bulkDelete">Удалить</button>
+  <button type="button" class="bulk-link" id="bulkSelectShown"></button>
+  <button type="button" class="bulk-link" id="bulkClear">Снять выбор</button>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <div class="overlay" id="lightbox">
@@ -546,6 +585,8 @@ const LAST_DRAFT_KEY = 'lqa:lastDraft'; // язык / категория / ра�
 
 /* ---------------- State ---------------- */
 let bugs = [];
+let selected = new Set();   // id выбранных галочками правок
+let shownIds = [];          // id правок, которые сейчас видны с учётом фильтров
 let loaded = false;
 
 /* ---------------- Backend endpoint ---------------- */
@@ -633,6 +674,41 @@ async function patchBugRemote(id, fields){
     return null;
   }
 }
+// Пакетные операции: один запрос на все выбранные правки.
+// Если Apps Script ещё старый и не знает пакетных действий — по одной правке, чуть медленнее.
+async function bulkPatchRemote(ids, fields){
+  try{
+    const json = await callApi({action:'bulkPatch', ids, fields});
+    if(json.ok) return json.bugs || [];
+    if(json.error !== 'unknown action') throw new Error(json.error || 'save failed');
+  }catch(e){
+    showToast('Ошибка сохранения: ' + errText(e));
+    return null;
+  }
+  const out = [];
+  for(const id of ids){
+    const saved = await patchBugRemote(id, fields);
+    if(!saved) return out.length ? out : null;
+    out.push(saved);
+  }
+  return out;
+}
+async function bulkDeleteRemote(ids){
+  try{
+    const json = await callApi({action:'bulkDelete', ids});
+    if(json.ok) return ids;
+    if(json.error !== 'unknown action') throw new Error(json.error || 'delete failed');
+  }catch(e){
+    showToast('Ошибка удаления: ' + errText(e));
+    return null;
+  }
+  const done = [];
+  for(const id of ids){
+    if(!(await deleteBugRemote(id))) break;
+    done.push(id);
+  }
+  return done;
+}
 async function deleteBugRemote(id){
   try{
     const json = await callApi({action:'delete', id});
@@ -672,6 +748,9 @@ function initStaticSelects(){
   $('#fldSection').innerHTML = '<option value="">— выберите —</option>' + SECTIONS.map(s=>`<option value="${s}">${s}</option>`).join('') +
     `<option value="${SECTION_OTHER}">Другое…</option>`;
 
+  $('#bulkStatus').innerHTML = '<option value="">Статус…</option>' + STATUSES.map(s=>`<option value="${s}">${s}</option>`).join('');
+  $('#bulkAssignee').innerHTML = '<option value="">Кто исправляет…</option>' + ASSIGNEES.map(a=>`<option value="${a}">${a}</option>`).join('') +
+    '<option value="__none__">Не назначено</option>';
   fillSelect($('#fldLanguage'), LANGUAGES, false);
   fillSelect($('#fldCategory'), Object.keys(CATEGORIES), false);
 
@@ -761,13 +840,18 @@ function render(){
   });
 
   tbody.innerHTML = '';
+  shownIds = filtered.map(b=>b.id);
+  // выбор переживает фильтры и обновления, но удалённые правки из него убираем
+  for(const id of [...selected]) if(!bugs.some(b=>b.id===id)) selected.delete(id);
   $('#loadingState').style.display = loaded ? 'none' : 'block';
   $('#emptyState').style.display = loaded && !filtered.length ? 'block' : 'none';
   $('#bugTable').style.display = filtered.length ? 'table' : 'none';
 
   filtered.forEach(b=>{
     const tr = document.createElement('tr');
+    if(selected.has(b.id)) tr.classList.add('selected');
     tr.innerHTML = `
+      <td class="c-check"><input type="checkbox" class="row-check" ${selected.has(b.id)?'checked':''} aria-label="Выбрать правку №${b.num}"></td>
       <td><span class="cat-badge">${escapeHtml(b.language||'—')}</span></td>
       <td>
         <span class="cat-badge">${escapeHtml(b.category)}</span>
@@ -825,16 +909,23 @@ function render(){
         renderStats();
       });
     });
+    const check = tr.querySelector('.row-check');
+    check.addEventListener('change', ()=>{
+      check.checked ? selected.add(b.id) : selected.delete(b.id);
+      tr.classList.toggle('selected', check.checked);
+      updateBulkBar();
+    });
     tr.addEventListener('click', e=>{
-      if(e.target.closest('select')) return;
+      if(e.target.closest('select') || e.target.closest('.c-check')) return;
       openEdit(b.id);
     });
     tbody.appendChild(tr);
   });
+  updateBulkBar();
 }
-function selectClass(field, selected){
+function selectClass(field, selectedValue){
   const prefix = field==='status' ? 'st' : 'as';
-  const slugVal = selected ? slug(selected) : 'unassigned';
+  const slugVal = selectedValue ? slug(selectedValue) : 'unassigned';
   return `inline-select ${prefix}-pill ${prefix}-${slugVal}`;
 }
 function inlineSelect(field, id, options, selected, colorClass){
@@ -1209,9 +1300,10 @@ $('#deleteBtn').addEventListener('click', async ()=>{
 });
 
 /* ---------------- CSV export ---------------- */
-$('#exportBtn').addEventListener('click', ()=>{
+$('#exportBtn').addEventListener('click', ()=> downloadCsv(bugs));
+function downloadCsv(list){
   const headers = ['№','Язык','Категория','Подкатегория','Раздел','Ссылка','Как найти ошибку','Неправильный перевод','Новый перевод','Кто исправляет','Приоритет','Статус','Комментарий переводчика','Комментарий менеджера','Скриншот','Дата'];
-  const rows = bugs.map(b=>[b.num,b.language,b.category,b.subcategory,b.section,b.url,b.location,b.wrong,b.right,b.assignee,b.priority,b.status,b.comment,b.managerComment,b.screenshotUrl,formatDate(b.createdAt)]);
+  const rows = list.map(b=>[b.num,b.language,b.category,b.subcategory,b.section,b.url,b.location,b.wrong,b.right,b.assignee,b.priority,b.status,b.comment,b.managerComment,b.screenshotUrl,formatDate(b.createdAt)]);
   const csv = [headers, ...rows].map(r =>
     r.map(v => '"' + String(v||'').replace(/"/g,'""') + '"').join(',')
   ).join('\r\n');
@@ -1221,6 +1313,75 @@ $('#exportBtn').addEventListener('click', ()=>{
   a.href = url; a.download = 'lqa-errors.csv';
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/* ---------------- Выбор нескольких правок ---------------- */
+function updateBulkBar(){
+  const n = selected.size;
+  $('#bulkBar').classList.toggle('show', n > 0);
+  document.body.classList.toggle('bulk-on', n > 0);
+  $('#bulkCount').textContent = `Выбрано: ${n}`;
+  if(n) document.documentElement.style.setProperty('--bulk-bar-space', ($('#bulkBar').offsetHeight + 34) + 'px');
+  const shownSelected = shownIds.filter(id=>selected.has(id)).length;
+  const all = $('#selectAll');
+  all.checked = shownIds.length > 0 && shownSelected === shownIds.length;
+  all.indeterminate = shownSelected > 0 && shownSelected < shownIds.length;
+  // «выбрать все показанные» — когда видны не все выбранные или выбраны не все видимые
+  const btn = $('#bulkSelectShown');
+  btn.style.display = shownSelected < shownIds.length ? 'inline-block' : 'none';
+  btn.textContent = `Выбрать все показанные (${shownIds.length})`;
+}
+function selectShown(on){
+  shownIds.forEach(id=> on ? selected.add(id) : selected.delete(id));
+  render();
+}
+function clearSelection(){ selected.clear(); render(); }
+function selectedBugs(){ return bugs.filter(b=>selected.has(b.id)); }
+
+$('#selectAll').addEventListener('change', e=> selectShown(e.target.checked));
+$('#bulkSelectShown').addEventListener('click', ()=> selectShown(true));
+$('#bulkClear').addEventListener('click', clearSelection);
+$('#bulkCsv').addEventListener('click', ()=> downloadCsv(selectedBugs()));
+
+async function runBulk(label, fn){
+  $('#bulkBar').classList.add('busy');
+  $('#bulkCount').textContent = label;
+  try{ await fn(); }
+  finally{ $('#bulkBar').classList.remove('busy'); updateBulkBar(); }
+}
+async function applyBulkField(field, value){
+  const ids = [...selected];
+  await runBulk('Сохраняем…', async ()=>{
+    const saved = await bulkPatchRemote(ids, {[field]: value});
+    if(!saved) return;
+    saved.forEach(s=>{
+      const i = bugs.findIndex(b=>b.id===s.id);
+      if(i >= 0) bugs[i] = normalizeBug(s);
+    });
+    showToast(saved.length === ids.length ? `Обновлено: ${saved.length}` : `Обновлено ${saved.length} из ${ids.length}`);
+    selected.clear();
+    render();
+  });
+}
+$('#bulkStatus').addEventListener('change', e=>{
+  const v = e.target.value; e.target.value = '';
+  if(v) applyBulkField('status', v);
+});
+$('#bulkAssignee').addEventListener('change', e=>{
+  const v = e.target.value; e.target.value = '';
+  if(v) applyBulkField('assignee', v === '__none__' ? '' : v);
+});
+$('#bulkDelete').addEventListener('click', ()=>{
+  const ids = [...selected];
+  if(!confirm(`Удалить выбранные правки (${ids.length}) без возможности восстановления?`)) return;
+  runBulk('Удаляем…', async ()=>{
+    const done = await bulkDeleteRemote(ids);
+    if(!done) return;
+    bugs = bugs.filter(b=>!done.includes(b.id));
+    done.forEach(id=>selected.delete(id));
+    showToast(done.length === ids.length ? `Удалено: ${done.length}` : `Удалено ${done.length} из ${ids.length}`);
+    render();
+  });
 });
 
 /* ---------------- Toast ---------------- */

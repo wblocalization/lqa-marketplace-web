@@ -48,6 +48,20 @@ function doPost(e) {
       const sheet = getSheet();
       if (body.action === 'upsert') return jsonOut(upsertRow(sheet, body.bug, body.baseUpdatedAt));
       if (body.action === 'patch') return jsonOut(patchRow(sheet, body.id, body.fields));
+      if (body.action === 'bulkPatch') {
+        const bugs = (body.ids || []).map(id => patchRow(sheet, id, body.fields)).filter(r => r.ok).map(r => r.bug);
+        return jsonOut({ ok: true, bugs: bugs });
+      }
+      if (body.action === 'bulkDelete') {
+        // снизу вверх, чтобы номера строк не съезжали после каждого удаления
+        (body.ids || []).map(id => findRowIndexById(sheet, id)).filter(i => i !== -1)
+          .sort((a, b) => b - a)
+          .forEach(rowIdx => {
+            trashScreenshot(readRow(sheet, rowIdx).screenshotUrl);
+            sheet.deleteRow(rowIdx);
+          });
+        return jsonOut({ ok: true });
+      }
       if (body.action === 'delete') {
         deleteRow(sheet, body.id);
         return jsonOut({ ok: true });
