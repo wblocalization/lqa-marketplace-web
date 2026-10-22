@@ -286,6 +286,17 @@
   }
   .shared-note svg{opacity:.6;}
 
+  .access-note{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    margin:-8px 0 22px; padding:10px 14px; border-radius:8px;
+    background:var(--wb-purple-soft); color:var(--ink-soft); font-size:12.5px;
+  }
+  .access-note a{color:var(--wb-purple); font-weight:600;}
+  .access-note .btn{display:none;}
+  .access-note.alert{background:#F7E7E4; color:var(--red-deep); font-size:13.5px;}
+  .access-note.alert a{color:var(--red-deep);}
+  .access-note.alert .btn{display:inline-flex;}
+
   .footer-note{margin-top:28px; font-size:12px; color:var(--ink-soft); text-align:center;}
 </style>
 </head>
@@ -306,6 +317,12 @@
       <button class="btn" id="newBugBtn">+ Новый баг</button>
     </div>
   </header>
+
+  <div class="access-note" id="accessNote">
+    <span id="accessNoteText">Таблица не работает или данные не грузятся?</span>
+    <span><a id="appLink" href="#" target="_blank" rel="noopener">Откройте наше приложение</a>, войдите в Google-аккаунт и дайте разрешение, затем обновите эту страницу.</span>
+    <button type="button" class="btn small" id="reloadBtn">Обновить страницу</button>
+  </div>
 
   <div class="stats" id="stats"></div>
   <div class="lang-breakdown" id="prioBreakdown"></div>
@@ -482,6 +499,12 @@ let loaded = false;
 const SHEETS_ENDPOINT = 'https://script.google.com/macros/s/AKfycbxMOStrnj-i3zik1-kqKORmAJ4da8B9Ek3OArLS1cVJzXfXRnkmtlMXinvP35UpHm_FLA/exec';
 const endpointConfigured = /^https:\/\//.test(SHEETS_ENDPOINT);
 
+// Чаще всего данные не грузятся, потому что человек ещё не дал приложению разрешение
+function showAccessAlert(detail){
+  $('#accessNote').classList.add('alert');
+  $('#accessNoteText').textContent = 'Не удалось загрузить данные' + (detail ? ' (' + detail + ')' : '') + '.';
+}
+
 function showSetupBanner(){
   const banner = document.createElement('div');
   banner.style.cssText = 'background:#F7E7E4;color:#7A2020;padding:10px 16px;font-size:12.5px;text-align:center;border-bottom:1px solid #E3CFC8;';
@@ -527,7 +550,7 @@ async function loadBugs(silent){
     bugs = (json.bugs||[]).map(b => ({...b, num: Number(b.num)||0}));
   }catch(e){
     if(silent) return; // фоновое обновление не удалось — оставляем то, что уже на экране
-    showToast('Не удалось загрузить данные: ' + errText(e));
+    showAccessAlert(errText(e));
     bugs = [];
   }
   loaded = true;
@@ -1080,6 +1103,8 @@ $('#lightbox').addEventListener('click', ()=> $('#lightbox').classList.remove('o
 
 /* ---------------- Boot ---------------- */
 initStaticSelects();
+$('#appLink').href = SHEETS_ENDPOINT;
+$('#reloadBtn').addEventListener('click', ()=> location.reload());
 if(!endpointConfigured) showSetupBanner();
 render();
 loadBugs();
