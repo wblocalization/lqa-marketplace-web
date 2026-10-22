@@ -9,8 +9,14 @@
 
 const SHEET_NAME = 'LQA';
 const SHOT_FOLDER_NAME = 'LQA Screenshots';
-const COLUMNS = ['id','num','createdAt','updatedAt','language','category','subcategory',
-                  'location','wrong','right','assignee','priority','status','comment','screenshotUrl'];
+// Порядок колонок в листе. Новые поля дописываются В КОНЕЦ (после превью),
+// чтобы уже заполненные строки не съезжали.
+const LAYOUT = ['id','num','createdAt','updatedAt','language','category','subcategory',
+                'location','wrong','right','assignee','priority','status','comment','screenshotUrl',
+                'screenshotPreview','section','url'];
+const PREVIEW = 'screenshotPreview';                 // формула IMAGE(), не данные
+const COLUMNS = LAYOUT.filter(c => c !== PREVIEW);    // поля бага
+function col(name) { return LAYOUT.indexOf(name) + 1; }
 // Поля, которые можно менять точечно прямо из таблицы на сайте
 const PATCHABLE = ['assignee','status','priority'];
 
@@ -60,15 +66,19 @@ function getSheet() {
   let sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(SHEET_NAME);
-    sheet.appendRow(COLUMNS.concat(['screenshotPreview']));
+    sheet.appendRow(LAYOUT);
     sheet.setFrozenRows(1);
-    sheet.setColumnWidth(COLUMNS.length + 1, 160);
+    sheet.setColumnWidth(col(PREVIEW), 160);
   } else {
-    // миграция: если таблица создана до появления колонки с превью — дописываем её
-    const header = sheet.getRange(1, COLUMNS.length + 1).getValue();
-    if (header !== 'screenshotPreview') {
-      sheet.getRange(1, COLUMNS.length + 1).setValue('screenshotPreview');
-      sheet.setColumnWidth(COLUMNS.length + 1, 160);
+    // миграция: таблица могла быть создана до появления превью, раздела или ссылки — дописываем заголовки
+    if (sheet.getMaxColumns() < LAYOUT.length) {
+      sheet.insertColumnsAfter(sheet.getMaxColumns(), LAYOUT.length - sheet.getMaxColumns());
+    }
+    const headerRange = sheet.getRange(1, 1, 1, LAYOUT.length);
+    const header = headerRange.getValues()[0];
+    if (LAYOUT.some((c, i) => header[i] !== c)) {
+      headerRange.setValues([LAYOUT]);
+      sheet.setColumnWidth(col(PREVIEW), 160);
     }
   }
   return sheet;
@@ -76,21 +86,24 @@ function getSheet() {
 
 function rowToObj(row) {
   const obj = {};
-  COLUMNS.forEach((c, i) => obj[c] = row[i] instanceof Date ? row[i].toISOString() : row[i]);
+  COLUMNS.forEach(c => {
+    const v = row[col(c) - 1];
+    obj[c] = v instanceof Date ? v.toISOString() : v;
+  });
   return obj;
 }
 
 function readAllRows(sheet) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  const values = sheet.getRange(2, 1, lastRow - 1, COLUMNS.length).getValues();
+  const values = sheet.getRange(2, 1, lastRow - 1, LAYOUT.length).getValues();
   return values
     .filter(row => row[0] !== '') // skip empty rows
     .map(rowToObj);
 }
 
 function readRow(sheet, rowIdx) {
-  return rowToObj(sheet.getRange(rowIdx, 1, 1, COLUMNS.length).getValues()[0]);
+  return rowToObj(sheet.getRange(rowIdx, 1, 1, LAYOUT.length).getValues()[0]);
 }
 
 function findRowIndexById(sheet, id) {
@@ -104,7 +117,7 @@ function findRowIndexById(sheet, id) {
 function nextNum(sheet) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return 1;
-  const nums = sheet.getRange(2, COLUMNS.indexOf('num') + 1, lastRow - 1, 1).getValues().flat();
+  const nums = sheet.getRange(2, col('num'), lastRow - 1, 1).getValues().flat();
   return nums.reduce((m, n) => Math.max(m, Number(n) || 0), 0) + 1;
 }
 
@@ -143,7 +156,7 @@ function upsertRow(sheet, bug, baseUpdatedAt) {
   }
   bug.updatedAt = now;
 
-  const rowValues = COLUMNS.map(c => safeCell(bug[c]));
+  const rowValues = LAYOUT.map(c => c === PREVIEW ? '' : safeCell(bug[c])); // формулу превью ставит setPreviewFormula
   if (rowIdx === -1) {
     sheet.appendRow(rowValues);
     rowIdx = sheet.getLastRow();
@@ -160,15 +173,15 @@ function patchRow(sheet, id, fields) {
   if (rowIdx === -1) return { ok: false, error: 'not found' };
   Object.keys(fields || {}).forEach(k => {
     if (PATCHABLE.indexOf(k) === -1) return;
-    sheet.getRange(rowIdx, COLUMNS.indexOf(k) + 1).setValue(safeCell(fields[k]));
+    sheet.getRange(rowIdx, col(k)).setValue(safeCell(fields[k]));
   });
-  sheet.getRange(rowIdx, COLUMNS.indexOf('updatedAt') + 1).setValue(safeCell(new Date().toISOString()));
+  sheet.getRange(rowIdx, col('updatedAt')).setValue(safeCell(new Date().toISOString()));
   return { ok: true, bug: readRow(sheet, rowIdx) };
 }
 
 function setPreviewFormula(sheet, rowIdx) {
-  const urlCol = columnToLetter(COLUMNS.indexOf('screenshotUrl') + 1);
-  const previewCol = COLUMNS.length + 1;
+  const urlCol = columnToLetter(col('screenshotUrl'));
+  const previewCol = col(PREVIEW);
   // точка с запятой вместо запятой — таблица в русской локали ждёт именно такой разделитель
   sheet.getRange(rowIdx, previewCol).setFormula(
     '=IF(' + urlCol + rowIdx + '="";"";IMAGE(' + urlCol + rowIdx + '))'
@@ -231,7 +244,7 @@ function migrateScreenshotUrls() {
   const sheet = getSheet();
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return;
-  const urlCol = COLUMNS.indexOf('screenshotUrl') + 1;
+  const urlCol = col('screenshotUrl');
   const range = sheet.getRange(2, urlCol, lastRow - 1, 1);
   const values = range.getValues();
   let changed = false;

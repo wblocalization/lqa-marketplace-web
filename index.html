@@ -79,12 +79,13 @@
 
   /* ---------- Stats ---------- */
   .stats{
-    display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    display:grid; grid-template-columns:repeat(4,1fr);
     gap:1px; background:var(--line);
     border:1px solid var(--line); border-radius:var(--radius);
     overflow:hidden; margin-bottom:22px;
   }
   .stat{background:var(--paper-raised); padding:16px 18px;}
+  @media(max-width:700px){.stats{grid-template-columns:repeat(2,1fr);}}
   .stat .num{font-family:'Fraunces',serif; font-size:28px; font-weight:600; line-height:1;}
   .stat .label{font-size:12px; color:var(--ink-soft); margin-top:6px;}
   .stat.accent-red .num{color:var(--red-deep);}
@@ -192,6 +193,8 @@
 
   .comment-cell{max-width:200px; color:var(--ink-soft); font-size:12.5px;}
   .loc-cell{max-width:150px; font-size:12.5px; color:var(--ink-soft);}
+  .loc-cell .cat-badge{color:var(--ink);}
+  .icon-btn{text-decoration:none; font-size:13px;}
 
   .row-actions{display:flex; gap:6px;}
   .icon-btn{
@@ -338,6 +341,7 @@
     <select class="filter" id="fPriority"><option value="">Любой приоритет</option></select>
     <select class="filter" id="fStatus"><option value="">Любой статус</option></select>
     <select class="filter" id="fAssignee"><option value="">Любой ответственный</option></select>
+    <select class="filter" id="fSection"><option value="">Любой раздел</option></select>
     <select class="filter" id="fSort">
       <option value="new">Сначала новые</option>
       <option value="old">Сначала старые</option>
@@ -398,9 +402,23 @@
         </div>
       </div>
 
+      <div class="grid2">
+        <div class="field">
+          <label>Раздел сайта</label>
+          <select id="fldSection"></select>
+          <input type="text" id="fldSectionOther" placeholder="Название раздела" style="display:none; margin-top:6px;">
+          <div class="field-error" id="sectionError">Выберите раздел — по нему считается, где больше всего ошибок.</div>
+        </div>
+        <div class="field">
+          <label>Ссылка на страницу</label>
+          <input type="text" id="fldUrl" inputmode="url" placeholder="https://www.wildberries.ru/…">
+          <div class="field-error" id="urlError">Ссылка должна начинаться с https://</div>
+        </div>
+      </div>
+
       <div class="field">
-        <label>Раздел / как найти ошибку</label>
-        <input type="text" id="fldLocation" placeholder="Личный кабинет → Покупки → …">
+        <label>Как найти ошибку</label>
+        <input type="text" id="fldLocation" placeholder="Например: карточка товара → вкладка «Отзывы» → кнопка под фото">
       </div>
 
       <div class="grid2">
@@ -459,13 +477,18 @@
 /* ---------------- Reference data (fixed to match the category sheet, incl. Навигация) ---------------- */
 const CATEGORIES = {
   "Терминология": ["Неверный термин","Несогласованность терминологии"],
-  "Точность перевода": ["Не переводится","Искажение смысла","Пропуск","Добавление","Текст не переведён"],
-  "Языковые нормы": ["Естественность звучания","Грамматика","Пунктуация","Заглавные и строчные буквы","Орфография"],
+  "Точность перевода": ["Не переводится","Искажение смысла","Пропуск","Добавление","Текст не переведён",
+                        "Переведено то, что не нужно (бренды, названия, имена)","Смешение языков на странице",
+                        "Текст на картинке или баннере не переведён"],
+  "Языковые нормы": ["Естественность звучания","Грамматика","Пунктуация","Заглавные и строчные буквы","Орфография",
+                     "Неверный порядок слов (склейка строк)","Неверная форма слова после числа"],
   "Стиль и тон": ["Неподходящий тон"],
   "Навигация": ["Ссылка ведёт не туда"],
-  "Оформление и вёрстка": ["Текст не помещается","Съехавшие элементы интерфейса","Проблемы со шрифтом","Сломанная разметка"],
+  "Оформление и вёрстка": ["Текст не помещается","Съехавшие элементы интерфейса","Проблемы со шрифтом","Сломанная разметка",
+                           "Сломанная переменная ({count}, %s, пустое место)","Квадратики вместо букв"],
   "Уместность для аудитории": ["Культурная уместность"],
-  "Региональные стандарты": ["Неверный формат дат, времени, чисел или валюты","Проблемы со спецсимволами"],
+  "Региональные стандарты": ["Неверный формат дат, времени, чисел или валюты","Проблемы со спецсимволами",
+                             "Цена или валюта отображаются неверно","Единицы измерения и размеры","Неверный порядок по алфавиту"],
   "Прочее": ["—"]
 };
 const LANGUAGES = ["Русский","Английский","Азербайджанский","Амхарский","Грузинский","Казахский","Узбекский","Киргизский","Армянский","Таджикский"];
@@ -487,6 +510,12 @@ const SPECIAL_CHARS = {
   "Азербайджанский": ["ə","ğ","ı","ö","ü","ş","ç"],
   "Узбекский": ["oʻ","gʻ","ʼ"]
 };
+// Разделы wildberries.ru — по ним считается статистика; «Другое…» позволяет вписать свой
+const SECTIONS = ["Главная и баннеры","Каталог и фильтры","Поиск","Карточка товара","Отзывы и вопросы",
+  "Корзина","Оформление заказа","Оплата","Пункты выдачи и карта",
+  "ЛК — Покупки","ЛК — Возвраты","ЛК — Избранное","ЛК — Кошелёк","ЛК — Профиль",
+  "Уведомления","Чат и поддержка","Подвал и правовые документы"];
+const SECTION_OTHER = '__other__';
 const LAST_DRAFT_KEY = 'lqa:lastDraft'; // язык / категория / раздел последнего бага
 
 /* ---------------- State ---------------- */
@@ -612,6 +641,9 @@ function initStaticSelects(){
   $('#fStatus').innerHTML = '<option value="">Любой статус</option>' + STATUSES.map(s=>`<option value="${s}">${s}</option>`).join('');
   $('#fAssignee').innerHTML = '<option value="">Любой ответственный</option>' + ASSIGNEES.map(a=>`<option value="${a}">${a}</option>`).join('');
 
+  $('#fldSection').innerHTML = '<option value="">— выберите —</option>' + SECTIONS.map(s=>`<option value="${s}">${s}</option>`).join('') +
+    `<option value="${SECTION_OTHER}">Другое…</option>`;
+
   fillSelect($('#fldLanguage'), LANGUAGES, false);
   fillSelect($('#fldCategory'), Object.keys(CATEGORIES), false);
 
@@ -636,6 +668,29 @@ function updateFieldLabels(){
   $('#fldWrong').placeholder = isLink ? 'https://…' : '';
   $('#fldRight').placeholder = isLink ? 'Например: должна открываться узбекская версия' : '';
 }
+// Фильтр по разделам: стандартные + те, что люди вписали сами
+function fillSectionFilter(){
+  const el = $('#fSection'), cur = el.value;
+  const custom = [...new Set(bugs.map(b=>b.section).filter(s=> s && !SECTIONS.includes(s)))].sort();
+  el.innerHTML = '<option value="">Любой раздел</option>' + SECTIONS.concat(custom)
+    .map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+  el.value = cur;
+}
+function setSection(value){
+  const known = !value || SECTIONS.includes(value);
+  $('#fldSection').value = known ? (value||'') : SECTION_OTHER;
+  $('#fldSectionOther').value = known ? '' : value;
+  updateSectionOther();
+}
+function getSection(){
+  const v = $('#fldSection').value;
+  return v === SECTION_OTHER ? $('#fldSectionOther').value.trim() : v;
+}
+function updateSectionOther(){
+  const other = $('#fldSection').value === SECTION_OTHER;
+  $('#fldSectionOther').style.display = other ? 'block' : 'none';
+  $('#sectionError').classList.remove('show');
+}
 function updateCharBar(){
   const chars = SPECIAL_CHARS[$('#fldLanguage').value] || [];
   $('#charBar').innerHTML = chars.map(c => `<button type="button" data-ch="${c}">${c}</button>`).join('');
@@ -648,7 +703,8 @@ function render(){
   renderStats();
   const q = $('#searchInput').value.trim().toLowerCase();
   const fl = $('#fLanguage').value, fc = $('#fCategory').value, fp = $('#fPriority').value, fs = $('#fStatus').value, fa = $('#fAssignee').value;
-  const sort = $('#fSort').value;
+  const sort = $('#fSort').value, fsec = $('#fSection').value;
+  fillSectionFilter();
 
   const filtered = bugs.filter(b=>{
     if(fl && b.language !== fl) return false;
@@ -656,8 +712,9 @@ function render(){
     if(fp && b.priority !== fp) return false;
     if(fs && b.status !== fs) return false;
     if(fa && b.assignee !== fa) return false;
+    if(fsec && b.section !== fsec) return false;
     if(q){
-      const hay = [b.location,b.wrong,b.right,b.comment,b.category,b.subcategory,b.language,b.num].join(' ').toLowerCase();
+      const hay = [b.section,b.url,b.location,b.wrong,b.right,b.comment,b.category,b.subcategory,b.language,b.num].join(' ').toLowerCase();
       if(!hay.includes(q)) return false;
     }
     return true;
@@ -687,7 +744,10 @@ function render(){
         <span class="cat-badge">${escapeHtml(b.category)}</span>
         <span class="subcat">${escapeHtml(b.subcategory)}</span>
       </td>
-      <td class="loc-cell">${escapeHtml(b.location||'—')}</td>
+      <td class="loc-cell">
+        ${b.section ? `<span class="cat-badge">${escapeHtml(b.section)}</span>` : ''}
+        <span class="subcat">${escapeHtml(b.location || (b.section ? '' : '—'))}</span>
+      </td>
       <td>
         <div class="diff">
           <span class="wrong">${escapeHtml(truncate(b.wrong,60))}</span>
@@ -702,10 +762,13 @@ function render(){
       <td class="loc-cell mono">${formatDate(b.createdAt)}</td>
       <td>
         <div class="row-actions">
+          ${isUrl(b.url) ? `<a class="icon-btn page-link" href="${escapeHtml(b.url)}" target="_blank" rel="noopener" title="Открыть страницу">🔗</a>` : ''}
           ${b.screenshotUrl ? `<button type="button" class="icon-btn shot-view" title="Посмотреть скриншот">📎</button>` : ''}
         </div>
       </td>
     `;
+    const pageLink = tr.querySelector('.page-link');
+    if(pageLink) pageLink.addEventListener('click', ev=> ev.stopPropagation());
     const shotBtn = tr.querySelector('.shot-view');
     if(shotBtn){
       shotBtn.addEventListener('click', ev=>{
@@ -766,6 +829,10 @@ function renderStats(){
   bugs.forEach(b=>{ if(b.assignee) byAssignee[b.assignee] = (byAssignee[b.assignee]||0)+1; });
   const topAssignee = Object.entries(byAssignee).sort((a,b)=>b[1]-a[1])[0];
 
+  const bySection = {};
+  bugs.forEach(b=>{ if(b.section) bySection[b.section] = (bySection[b.section]||0)+1; });
+  const topSection = Object.entries(bySection).sort((a,b)=>b[1]-a[1])[0];
+
   const weekAgo = Date.now() - 7*24*60*60*1000;
   const newThisWeek = bugs.filter(b=> b.createdAt && new Date(b.createdAt).getTime() >= weekAgo).length;
 
@@ -775,6 +842,7 @@ function renderStats(){
     <div class="stat"><div class="num mono">${inProgress}</div><div class="label">В работе сейчас</div></div>
     <div class="stat accent-green"><div class="num mono">${pct}%</div><div class="label">Исправлено</div></div>
     <div class="stat"><div class="num" style="font-size:16px;">${topCat ? escapeHtml(topCat[0]) : '—'}</div><div class="label">Частая категория ${topCat ? '('+topCat[1]+')' : ''}</div></div>
+    <div class="stat"><div class="num" style="font-size:16px;">${topSection ? escapeHtml(topSection[0]) : '—'}</div><div class="label">Больше всего ошибок в разделе ${topSection ? '('+topSection[1]+')' : ''}</div></div>
     <div class="stat"><div class="num" style="font-size:16px;">${topAssignee ? escapeHtml(topAssignee[0]) : '—'}</div><div class="label">На них больше всего багов ${topAssignee ? '('+topAssignee[1]+')' : ''}</div></div>
     <div class="stat"><div class="num mono">${newThisWeek}</div><div class="label">Новых за неделю</div></div>
   `;
@@ -800,6 +868,7 @@ function renderPriorityBreakdown(){
     .join('');
 }
 
+function isUrl(s){ return /^https?:\/\//i.test(String(s||'').trim()); }
 function truncate(s,n){ if(!s) return '—'; s = String(s); return s.length>n ? s.slice(0,n)+'…' : s; }
 function formatDate(iso){
   if(!iso) return '—';
@@ -815,7 +884,7 @@ function escapeHtml(s){
 /* ---------------- Modal ---------------- */
 function takeSnapshot(){
   const p = document.querySelector('#priorityChoice input:checked');
-  return JSON.stringify(['#fldLanguage','#fldCategory','#fldSubcategory','#fldLocation','#fldWrong','#fldRight','#fldComment']
+  return JSON.stringify(['#fldLanguage','#fldCategory','#fldSubcategory','#fldSection','#fldSectionOther','#fldUrl','#fldLocation','#fldWrong','#fldRight','#fldComment']
     .map(s=>$(s).value).concat([p ? p.value : '', shotChanged]));
 }
 function openNew(keep){
@@ -827,7 +896,7 @@ function openNew(keep){
   $('#modalTitle').textContent = 'Новый баг';
   $('#deleteBtn').style.display = 'none';
   $('#saveMoreBtn').style.display = 'inline-flex';
-  $('#textError').classList.remove('show');
+  ['#textError','#urlError'].forEach(s=> $(s).classList.remove('show'));
   $('#bugForm').reset();
 
   // язык, категория и раздел — как в прошлом баге: обычно проходят один язык и один раздел подряд
@@ -838,8 +907,10 @@ function openNew(keep){
   if(keep){
     if((CATEGORIES[draft.category]||[]).includes(draft.subcategory)) $('#fldSubcategory').value = draft.subcategory;
     $('#fldLocation').value = draft.location || '';
+    $('#fldUrl').value = draft.url || '';
     updateFieldLabels();
   }
+  setSection(draft.section || '');
   updateCharBar();
   resetShotUI();
   document.querySelector('#priorityChoice input[value="Средний"]').checked = true;
@@ -859,13 +930,15 @@ function openEdit(id){
   $('#modalTitle').textContent = 'Баг №' + b.num;
   $('#deleteBtn').style.display = 'inline-flex';
   $('#saveMoreBtn').style.display = 'none';
-  $('#textError').classList.remove('show');
+  ['#textError','#urlError'].forEach(s=> $(s).classList.remove('show'));
   $('#fldLanguage').value = LANGUAGES.includes(b.language) ? b.language : LANGUAGES[0];
   $('#fldCategory').value = CATEGORIES[b.category] ? b.category : Object.keys(CATEGORIES)[0];
   updateSubcategoryOptions();
   if((CATEGORIES[b.category]||[]).includes(b.subcategory)) $('#fldSubcategory').value = b.subcategory;
   updateFieldLabels();
   updateCharBar();
+  setSection(b.section || '');
+  $('#fldUrl').value = b.url||'';
   $('#fldLocation').value = b.location||'';
   $('#fldWrong').value = b.wrong||'';
   $('#fldRight').value = b.right||'';
@@ -892,7 +965,7 @@ function updatePriorityHint(){
 }
 
 /* ---------------- Special characters ---------------- */
-['#fldLocation','#fldWrong','#fldRight','#fldComment'].forEach(sel=>{
+['#fldSectionOther','#fldLocation','#fldWrong','#fldRight','#fldComment'].forEach(sel=>{
   $(sel).addEventListener('focus', ()=>{ lastTextField = $(sel); });
 });
 $('#charBar').addEventListener('mousedown', e=> e.preventDefault()); // не забираем фокус у поля
@@ -967,9 +1040,12 @@ $('#overlay').addEventListener('click', e=>{ if(e.target.id==='overlay') closeMo
 $('#fldCategory').addEventListener('change', updateSubcategoryOptions);
 $('#fldSubcategory').addEventListener('change', updateFieldLabels);
 $('#fldLanguage').addEventListener('change', updateCharBar);
+$('#fldSection').addEventListener('change', updateSectionOther);
+$('#fldSectionOther').addEventListener('input', ()=> $('#sectionError').classList.remove('show'));
+$('#fldUrl').addEventListener('input', ()=> $('#urlError').classList.remove('show'));
 $('#priorityChoice').addEventListener('change', updatePriorityHint);
 ['#fldWrong','#fldRight'].forEach(sel=> $(sel).addEventListener('input', ()=> $('#textError').classList.remove('show')));
-['#searchInput','#fLanguage','#fCategory','#fPriority','#fStatus','#fAssignee','#fSort'].forEach(sel=>{
+['#searchInput','#fLanguage','#fCategory','#fPriority','#fStatus','#fAssignee','#fSection','#fSort'].forEach(sel=>{
   $(sel).addEventListener('input', render);
   $(sel).addEventListener('change', render);
 });
@@ -989,6 +1065,18 @@ $('#bugForm').addEventListener('submit', async e=>{
   if(!$('#fldWrong').value.trim() && !$('#fldRight').value.trim()){
     $('#textError').classList.add('show');
     $('#fldWrong').focus();
+    return;
+  }
+  // раздел обязателен для новых багов; у старых его могло не быть — не мешаем их править
+  if(!getSection() && (!editingId || $('#fldSection').value === SECTION_OTHER)){
+    $('#sectionError').classList.add('show');
+    ($('#fldSection').value === SECTION_OTHER ? $('#fldSectionOther') : $('#fldSection')).focus();
+    return;
+  }
+  const urlVal = $('#fldUrl').value.trim();
+  if(urlVal && !isUrl(urlVal)){
+    $('#urlError').classList.add('show');
+    $('#fldUrl').focus();
     return;
   }
 
@@ -1025,6 +1113,8 @@ $('#bugForm').addEventListener('submit', async e=>{
     language: $('#fldLanguage').value,
     category: $('#fldCategory').value,
     subcategory: $('#fldSubcategory').value,
+    section: getSection(),
+    url: urlVal,
     location: $('#fldLocation').value.trim(),
     wrong: $('#fldWrong').value.trim(),
     right: $('#fldRight').value.trim(),
@@ -1052,7 +1142,8 @@ $('#bugForm').addEventListener('submit', async e=>{
 
   const saved = normalizeBug(res.bug || bug); // старый бэкенд не возвращает bug
   if(isNew){ bugs.push(saved); } else { bugs[bugs.findIndex(b=>b.id===id)] = saved; }
-  const draft = {language: saved.language, category: saved.category, subcategory: saved.subcategory, location: saved.location};
+  const draft = {language: saved.language, category: saved.category, subcategory: saved.subcategory,
+                 section: saved.section, url: saved.url, location: saved.location};
   writeDraft(draft);
   showToast(isNew ? `Баг №${saved.num} добавлен` : 'Изменения сохранены');
   render();
@@ -1072,8 +1163,8 @@ $('#deleteBtn').addEventListener('click', async ()=>{
 
 /* ---------------- CSV export ---------------- */
 $('#exportBtn').addEventListener('click', ()=>{
-  const headers = ['№','Язык','Категория','Подкатегория','Раздел / как найти ошибку','Неправильный перевод','Новый перевод','Кто исправляет','Приоритет','Статус','Комментарий','Скриншот','Дата'];
-  const rows = bugs.map(b=>[b.num,b.language,b.category,b.subcategory,b.location,b.wrong,b.right,b.assignee,b.priority,b.status,b.comment,b.screenshotUrl,formatDate(b.createdAt)]);
+  const headers = ['№','Язык','Категория','Подкатегория','Раздел','Ссылка','Как найти ошибку','Неправильный перевод','Новый перевод','Кто исправляет','Приоритет','Статус','Комментарий','Скриншот','Дата'];
+  const rows = bugs.map(b=>[b.num,b.language,b.category,b.subcategory,b.section,b.url,b.location,b.wrong,b.right,b.assignee,b.priority,b.status,b.comment,b.screenshotUrl,formatDate(b.createdAt)]);
   const csv = [headers, ...rows].map(r =>
     r.map(v => '"' + String(v||'').replace(/"/g,'""') + '"').join(',')
   ).join('\r\n');
